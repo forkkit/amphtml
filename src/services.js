@@ -205,7 +205,7 @@ export class Services {
   }
 
   /**
-   * @param {!Element|!./service/ampdoc-impl.AmpDoc} elementOrAmpDoc
+   * @param {!Element|!ShadowRoot|!./service/ampdoc-impl.AmpDoc} elementOrAmpDoc
    * @return {!Promise<!./service/cid-impl.CidDef>}
    */
   static cidForDoc(elementOrAmpDoc) {
@@ -297,15 +297,6 @@ export class Services {
   }
 
   /**
-   * @param {!Window} window
-   * @return {!./service/document-state.DocumentState}
-   * @restricted  Only to be used for global document services, such as vsync.
-   */
-  static globalDocumentStateFor(window) {
-    return getService(window, 'documentState');
-  }
-
-  /**
    * Returns service to listen for `hidden` attribute mutations.
    * @param {!Element|!ShadowRoot} element
    * @return {!./service/hidden-observer-impl.HiddenObserver}
@@ -347,6 +338,28 @@ export class Services {
       element,
       'inputmask',
       'amp-inputmask'
+    ));
+  }
+
+  /**
+   * @param {!Element|!./service/ampdoc-impl.AmpDoc} elementOrAmpDoc
+   * @return {!../extensions/amp-next-page/1.0/service.NextPageService}
+   */
+  static nextPageServiceForDoc(elementOrAmpDoc) {
+    return /** @type {!../extensions/amp-next-page/1.0/service.NextPageService} */ (getServiceForDoc(
+      elementOrAmpDoc,
+      'next-page'
+    ));
+  }
+
+  /**
+   * @param {!Element|!./service/ampdoc-impl.AmpDoc} elementOrAmpDoc
+   * @return {!./service/mutator-interface.MutatorInterface}
+   */
+  static mutatorForDoc(elementOrAmpDoc) {
+    return /** @type {!./service/mutator-interface.MutatorInterface} */ (getServiceForDoc(
+      elementOrAmpDoc,
+      'mutator'
     ));
   }
 
@@ -408,6 +421,14 @@ export class Services {
   }
 
   /**
+   * @param {!Window} window
+   * @return {!./preconnect.PreconnectService}
+   */
+  static preconnectFor(window) {
+    return getService(window, 'preconnect');
+  }
+
+  /**
    * @param {!Element|!./service/ampdoc-impl.AmpDoc} elementOrAmpDoc
    * @return {!./service/resources-interface.ResourcesInterface}
    */
@@ -426,19 +447,6 @@ export class Services {
     return /** @type {!Promise<!./service/resources-interface.ResourcesInterface>} */ (getServicePromiseForDoc(
       elementOrAmpDoc,
       'resources'
-    ));
-  }
-
-  /**
-   * @param {!Window} win
-   * @return {?Promise<?{incomingFragment: string, outgoingFragment: string}>}
-   */
-  static shareTrackingForOrNull(win) {
-    return /** @type {!Promise<?{incomingFragment: string, outgoingFragment: string}>} */ (getElementServiceIfAvailable(
-      win,
-      'share-tracking',
-      'amp-share-tracking',
-      true
     ));
   }
 
@@ -469,11 +477,11 @@ export class Services {
    * Version of the story store service depends on which version of amp-story
    * the publisher is loading. They all have the same implementation.
    * @param {!Window} win
-   * @return {?Promise<?../extensions/amp-story/1.0/amp-story-store-service.AmpStoryStoreService|?../extensions/amp-story/0.1/amp-story-store-service.AmpStoryStoreService>}
+   * @return {?Promise<?../extensions/amp-story/1.0/amp-story-store-service.AmpStoryStoreService>}
    */
   static storyStoreServiceForOrNull(win) {
     return (
-      /** @type {!Promise<?../extensions/amp-story/1.0/amp-story-store-service.AmpStoryStoreService|?../extensions/amp-story/0.1/amp-story-store-service.AmpStoryStoreService>} */
+      /** @type {!Promise<?../extensions/amp-story/1.0/amp-story-store-service.AmpStoryStoreService>} */
       (getElementServiceIfAvailable(win, 'story-store', 'amp-story'))
     );
   }
@@ -523,22 +531,14 @@ export class Services {
   }
 
   /**
-   * @param {!Window} win
-   * @return {!Promise<?./service/localization.LocalizationService>}
+   * @param {!Element} element
+   * @return {?./service/localization.LocalizationService}
    */
-  static localizationServiceForOrNull(win) {
-    return (
-      /** @type {!Promise<?./service/localization.LocalizationService>} */
-      (getElementServiceIfAvailable(win, 'localization', 'amp-story', true))
-    );
-  }
-
-  /**
-   * @param {!Window} win
-   * @return {!./service/localization.LocalizationService}
-   */
-  static localizationService(win) {
-    return getService(win, 'localization');
+  static localizationForDoc(element) {
+    return /** @type {?./service/localization.LocalizationService} */ (getExistingServiceForDocInEmbedScope(
+      element,
+      'localization'
+    ));
   }
 
   /**
@@ -561,61 +561,6 @@ export class Services {
     return (
       /** @type {?../extensions/amp-story/1.0/story-analytics.StoryAnalyticsService} */
       (getExistingServiceOrNull(win, 'story-analytics'))
-    );
-  }
-
-  /**
-   * TODO(#14357): Remove this when amp-story:0.1 is deprecated.
-   * @param {!Window} win
-   * @return {!../extensions/amp-story/0.1/amp-story-store-service.AmpStoryStoreService}
-   */
-  static storyStoreServiceV01(win) {
-    return getService(win, 'story-store');
-  }
-
-  /**
-   * TODO(#14357): Remove this when amp-story:0.1 is deprecated.
-   * @param {!Window} win
-   * @return {!../extensions/amp-story/0.1/amp-story-request-service.AmpStoryRequestService}
-   */
-  static storyRequestServiceV01(win) {
-    return getService(win, 'story-request-v01');
-  }
-
-  /**
-   * TODO(#14357): Remove this when amp-story:0.1 is deprecated.
-   * @param {!Window} win
-   * @return {!Promise<?./service/localization.LocalizationService>}
-   */
-  static localizationServiceForOrNullV01(win) {
-    return (
-      /** @type {!Promise<?./service/localization.LocalizationService>} */
-      (getElementServiceIfAvailable(win, 'localization-v01', 'amp-story', true))
-    );
-  }
-
-  /**
-   * TODO(#14357): Remove this when amp-story:0.1 is deprecated.
-   * @param {!Window} win
-   * @return {!./service/localization.LocalizationService}
-   */
-  static localizationServiceV01(win) {
-    return getService(win, 'localization-v01');
-  }
-
-  /**
-   * @param {!Window} win
-   * @return {?Promise<?../extensions/amp-viewer-integration/0.1/variable-service.ViewerIntegrationVariableDef>}
-   */
-  static viewerIntegrationVariableServiceForOrNull(win) {
-    return (
-      /** @type {!Promise<?../extensions/amp-viewer-integration/0.1/variable-service.ViewerIntegrationVariableDef>} */
-      (getElementServiceIfAvailable(
-        win,
-        'viewer-integration-variable',
-        'amp-viewer-integration',
-        true
-      ))
     );
   }
 
@@ -718,21 +663,6 @@ export class Services {
       element,
       'geo',
       'amp-geo',
-      true
-    ));
-  }
-
-  /**
-   * Returns a promise for the geo service or a promise for null if
-   * the service is not available on the current page.
-   * @param {!Element|!ShadowRoot} element
-   * @return {!Promise<?../extensions/amp-user-location/0.1/user-location-service.UserLocationService>}
-   */
-  static userLocationForDocOrNull(element) {
-    return /** @type {!Promise<?../extensions/amp-user-location/0.1/user-location-service.UserLocationService>} */ (getElementServiceIfAvailableForDoc(
-      element,
-      'user-location',
-      'amp-user-location',
       true
     ));
   }

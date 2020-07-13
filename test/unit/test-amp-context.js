@@ -23,11 +23,9 @@ describe('3p ampcontext.js', () => {
   let windowPostMessageSpy;
   let windowMessageHandler;
   let win;
-  let sandbox;
 
   beforeEach(() => {
-    sandbox = sinon.sandbox;
-    windowPostMessageSpy = sandbox.spy();
+    windowPostMessageSpy = window.sandbox.spy();
     win = {
       addEventListener: (eventType, handlerFn) => {
         expect(eventType).to.equal('message');
@@ -39,7 +37,7 @@ describe('3p ampcontext.js', () => {
 
       // setTimeout is needed for nextTick.
       // makes nextTick behavior synchronous for test assertions.
-      setTimeout: cb => cb(),
+      setTimeout: (cb) => cb(),
 
       // we don't care about window events for these tests since that behavior
       // is deprecated.
@@ -53,7 +51,6 @@ describe('3p ampcontext.js', () => {
   });
 
   afterEach(() => {
-    sandbox.restore();
     win = undefined;
     windowMessageHandler = undefined;
   });
@@ -72,7 +69,7 @@ describe('3p ampcontext.js', () => {
         'user-error-in-iframe',
         '1-291921',
         {'message': 'test'},
-        '$internalRuntimeVersion$'
+        '01$internalRuntimeVersion$'
       )
     );
   });
@@ -169,7 +166,7 @@ describe('3p ampcontext.js', () => {
   it('should be able to send an intersection observer request', () => {
     win.name = generateSerializedAttributes();
     const context = new AmpContext(win);
-    const callbackSpy = sandbox.spy();
+    const callbackSpy = window.sandbox.spy();
 
     // Resetting since a message is sent on construction.
     windowPostMessageSpy.resetHistory();
@@ -180,7 +177,7 @@ describe('3p ampcontext.js', () => {
     // observer
     expect(windowPostMessageSpy).to.be.calledOnce;
     expect(windowPostMessageSpy).to.be.calledWith(
-      'amp-$internalRuntimeVersion$' +
+      'amp-01$internalRuntimeVersion$' +
         '{"type":"send-intersections","sentinel":"1-291921"}',
       '*'
     );
@@ -214,14 +211,14 @@ describe('3p ampcontext.js', () => {
   it('should send a pM and set callback when onPageVisibilityChange()', () => {
     win.name = generateSerializedAttributes();
     const context = new AmpContext(win);
-    const callbackSpy = sandbox.spy();
+    const callbackSpy = window.sandbox.spy();
     const stopObserving = context.onPageVisibilityChange(callbackSpy);
 
     // window.context should have sent postMessage asking for visibility
     // observer
     expect(windowPostMessageSpy).to.be.calledOnce;
     expect(windowPostMessageSpy).to.be.calledWith(
-      'amp-$internalRuntimeVersion$' +
+      'amp-01$internalRuntimeVersion$' +
         '{"type":"send-embed-state","sentinel":"1-291921"}',
       '*'
     );
@@ -261,8 +258,8 @@ describe('3p ampcontext.js', () => {
     // Resetting since a message is sent on construction.
     windowPostMessageSpy.resetHistory();
 
-    const successCallbackSpy = sandbox.spy();
-    const deniedCallbackSpy = sandbox.spy();
+    const successCallbackSpy = window.sandbox.spy();
+    const deniedCallbackSpy = window.sandbox.spy();
 
     context.onResizeSuccess(successCallbackSpy);
     context.onResizeDenied(deniedCallbackSpy);
@@ -274,7 +271,7 @@ describe('3p ampcontext.js', () => {
     // window.context should have sent postMessage requesting resize
     expect(windowPostMessageSpy).to.be.calledOnce;
     expect(windowPostMessageSpy).to.be.calledWith(
-      'amp-$internalRuntimeVersion$' +
+      'amp-01$internalRuntimeVersion$' +
         '{"width":100,"height":200,"type":"embed-size","sentinel":"1-291921"}',
       '*'
     );
@@ -308,8 +305,8 @@ describe('3p ampcontext.js', () => {
     // Resetting since a message is sent on construction.
     windowPostMessageSpy.resetHistory();
 
-    const successCallbackSpy = sandbox.spy();
-    const deniedCallbackSpy = sandbox.spy();
+    const successCallbackSpy = window.sandbox.spy();
+    const deniedCallbackSpy = window.sandbox.spy();
 
     context.onResizeSuccess(successCallbackSpy);
     context.onResizeDenied(deniedCallbackSpy);
@@ -321,7 +318,7 @@ describe('3p ampcontext.js', () => {
     // window.context should have sent resize request postMessage
     expect(windowPostMessageSpy).to.be.calledOnce;
     expect(windowPostMessageSpy).to.be.calledWith(
-      'amp-$internalRuntimeVersion$' +
+      'amp-01$internalRuntimeVersion$' +
         '{"width":100,"height":200,"type":"embed-size","sentinel":"1-291921"}',
       '*'
     );

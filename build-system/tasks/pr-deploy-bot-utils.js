@@ -20,9 +20,9 @@ const log = require('fancy-log');
 const path = require('path');
 const request = require('request-promise');
 const {cyan, green} = require('ansi-colors');
-const {gitCommitHash} = require('../git');
+const {gitCommitHash} = require('../common/git');
 const {replaceUrls: replaceUrlsAppUtil} = require('../server/app-utils');
-const {travisBuildNumber} = require('../travis');
+const {travisBuildNumber} = require('../common/travis');
 
 const hostNamePrefix = 'https://storage.googleapis.com/amp-test-website-1';
 
@@ -60,8 +60,8 @@ async function replace(filePath) {
 async function replaceUrls(dir) {
   const files = await walk(dir);
   const promises = files
-    .filter(fileName => path.extname(fileName) == '.html')
-    .map(file => replace(file));
+    .filter((fileName) => path.extname(fileName) == '.html')
+    .map((file) => replace(file));
   await Promise.all(promises);
 }
 

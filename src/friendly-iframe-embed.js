@@ -20,7 +20,6 @@ import {LEGACY_ELEMENTS, stubLegacyElements} from './service/extensions-impl';
 import {Observable} from './observable';
 import {Services} from './services';
 import {Signals} from './utils/signals';
-import {cssText as ampDocCss} from '../build/ampdoc.css';
 import {cssText as ampSharedCss} from '../build/ampshared.css';
 import {
   copyElementToChildWindow,
@@ -36,16 +35,16 @@ import {
   setParentWindow,
 } from './service';
 import {escapeHtml} from './dom';
-import {getExperimentBranch, isExperimentOn} from './experiments';
 import {getMode} from './mode';
 import {installAmpdocServices} from './service/core-services';
 import {install as installCustomElements} from './polyfills/custom-elements';
 import {install as installDOMTokenList} from './polyfills/domtokenlist';
 import {install as installDocContains} from './polyfills/document-contains';
-import {installCustomElements as installRegisterElement} from 'document-register-element/build/document-register-element.patched';
+import {installForChildWin as installIntersectionObserver} from './polyfills/intersection-observer';
 import {installStylesForDoc, installStylesLegacy} from './style-installer';
 import {installTimerInEmbedWindow} from './service/timer-impl';
 import {isDocumentReady} from './document-ready';
+import {isInAmpdocFieExperiment} from './ampdoc-fie';
 import {layoutRectLtwh, moveLayoutRect} from './layout-rect';
 import {loadPromise} from './event-helper';
 import {
@@ -57,15 +56,6 @@ import {
 } from './style';
 import {toWin} from './types';
 import {whenContentIniLoad} from './ini-load';
-
-/**
- * @const {{experiment: string, control: string, branch: string}}
- */
-export const FIE_CSS_CLEANUP_EXP = {
-  branch: 'fie-css-cleanup',
-  control: '21064213',
-  experiment: '21064214',
-};
 
 /**
  * Parameters used to create the new "friendly iframe" embed.
@@ -98,6 +88,16 @@ let srcdocSupported;
  */
 export function setSrcdocSupportedForTesting(val) {
   srcdocSupported = val;
+}
+
+/**
+ * @return {function(*): !Promise<*>}
+ */
+function getDelayPromiseProducer() {
+  return (val) =>
+    new Promise((resolve) => {
+      setTimeout(() => resolve(val), 1);
+    });
 }
 
 /**
@@ -144,7 +144,7 @@ export function installFriendlyIframeEmbed(
   const win = getTopWindow(toWin(iframe.ownerDocument.defaultView));
   /** @const {!./service/extensions-impl.Extensions} */
   const extensions = Services.extensionsFor(win);
-  const ampdocFieExperimentOn = isExperimentOn(win, 'ampdoc-fie');
+  const ampdocFieExperimentOn = isInAmpdocFieExperiment(win);
   /** @const {?./service/ampdoc-impl.AmpDocService} */
   const ampdocService = ampdocFieExperimentOn
     ? Services.ampdocServiceFor(win)
@@ -157,7 +157,7 @@ export function installFriendlyIframeEmbed(
 
   // Pre-load extensions.
   if (spec.extensionIds) {
-    spec.extensionIds.forEach(extensionId =>
+    spec.extensionIds.forEach((extensionId) =>
       extensions.preloadExtension(extensionId)
     );
   }
@@ -172,7 +172,7 @@ export function installFriendlyIframeEmbed(
   const registerViolationListener = () => {
     iframe.contentWindow.addEventListener(
       'securitypolicyviolation',
-      violationEvent => {
+      (violationEvent) => {
         dev().warn('FIE', 'security policy violation', violationEvent);
       }
     );
@@ -203,10 +203,11 @@ export function installFriendlyIframeEmbed(
   // no other reliable signal for `readyState` in a child window and thus
   // we have to fallback to polling.
   let readyPromise;
+  const getDelayPromise = getDelayPromiseProducer();
   if (isIframeReady(iframe)) {
     readyPromise = Promise.resolve();
   } else {
-    readyPromise = new Promise(resolve => {
+    readyPromise = new Promise((resolve) => {
       /** @const {number} */
       const interval = win.setInterval(() => {
         if (isIframeReady(iframe)) {
@@ -218,7 +219,7 @@ export function installFriendlyIframeEmbed(
       // For safety, make sure we definitely stop polling when child doc is
       // loaded.
       loadedPromise
-        .catch(error => {
+        .catch((error) => {
           rethrowAsync(error);
         })
         .then(() => {
@@ -239,24 +240,49 @@ export function installFriendlyIframeEmbed(
     iframe[FIE_EMBED_PROP] = embed;
 
     // Add extensions.
+    const extensionIds = spec.extensionIds || [];
     if (ampdoc && ampdocFieExperimentOn) {
       embed.installExtensionsInFie(
         extensions,
         ampdoc,
-        spec.extensionIds || [],
+        extensionIds,
         opt_preinstallCallback
       );
+
+      // Ready to be shown.
+      embed.startRender_();
+      return embed;
     } else {
-      embed.installExtensionsInChildWindow(
-        extensions,
-        childWin,
-        spec.extensionIds || [],
-        opt_preinstallCallback
-      );
+      // Window might have been destroyed.
+      if (!childWin.frameElement) {
+        return null;
+      }
+      return getDelayPromise(undefined)
+        .then(() =>
+          embed.preInstallExtensionsInChildWindow(
+            extensions,
+            childWin,
+            extensionIds,
+            opt_preinstallCallback
+          )
+        )
+        .then(() => {
+          // Ready to be shown.
+          embed.startRender_();
+        })
+        .then(() => {
+          if (!childWin.frameElement) {
+            return null;
+          }
+          embed.doInstallExtensionsInChildWindow(
+            extensions,
+            childWin,
+            extensionIds
+          );
+          return embed;
+        })
+        .then(getDelayPromise);
     }
-    // Ready to be shown.
-    embed.startRender_();
-    return embed;
   });
 }
 
@@ -316,7 +342,7 @@ function mergeHtml(spec) {
 
   // Load fonts.
   if (spec.fonts) {
-    spec.fonts.forEach(font => {
+    spec.fonts.forEach((font) => {
       result.push(
         `<link href="${escapeHtml(font)}" rel="stylesheet" type="text/css">`
       );
@@ -562,6 +588,14 @@ export class FriendlyIframeEmbed {
   }
 
   /**
+   * @return {!./service/mutator-interface.MutatorInterface}
+   * @private
+   */
+  getMutator_() {
+    return Services.mutatorForDoc(this.iframe);
+  }
+
+  /**
    * Runs a measure/mutate cycle ensuring that the iframe change is propagated
    * to the resource manager.
    * @param {{measure: (function()|undefined), mutate: function()}} task
@@ -569,7 +603,7 @@ export class FriendlyIframeEmbed {
    * @private
    */
   measureMutate_(task) {
-    return this.getResources_().measureMutateElement(
+    return this.getMutator_().measureMutateElement(
       this.iframe,
       task.measure || null,
       task.mutate
@@ -584,8 +618,8 @@ export class FriendlyIframeEmbed {
     const resources = this.getResources_();
     const toRemove = resources
       .get()
-      .filter(resource => resource.hostWin == this.win);
-    toRemove.forEach(resource => {
+      .filter((resource) => resource.hostWin == this.win);
+    toRemove.forEach((resource) => {
       resources.remove(resource.element);
       resource.disconnect();
     });
@@ -711,10 +745,7 @@ export class FriendlyIframeEmbed {
     // Install runtime styles.
     installStylesForDoc(
       ampdoc,
-      getExperimentBranch(this.win, FIE_CSS_CLEANUP_EXP.branch) ===
-        FIE_CSS_CLEANUP_EXP.experiment
-        ? ampSharedCss
-        : ampDocCss + ampSharedCss,
+      ampSharedCss,
       /* callback */ null,
       /* opt_isRuntimeCss */ true,
       /* opt_ext */ 'amp-runtime'
@@ -733,7 +764,7 @@ export class FriendlyIframeEmbed {
     stubLegacyElements(childWin);
 
     return Promise.all(
-      extensionIds.map(extensionId => {
+      extensionIds.map((extensionId) => {
         // This will extend automatic upgrade of custom elements from top
         // window to the child window.
         if (!LEGACY_ELEMENTS.includes(extensionId)) {
@@ -743,11 +774,11 @@ export class FriendlyIframeEmbed {
       })
     );
   }
-
   /**
-   * Install extensions in the child window (friendly iframe). The pre-install
-   * callback, if specified, is executed after polyfills have been configured
-   * but before the first extension is installed.
+   * Prepare for installing extensions in the child window (friendly iframe).
+   * It injects polyfills, CSS for AMP runtime, standard services, built-in
+   * elements and stubs all other elements.
+   * The pre-install callback, if specified, is executed after polyfills have been configured.
    * @param {!./service/extensions-impl.Extensions} extensions
    * @param {!Window} childWin
    * @param {!Array<string>} extensionIds
@@ -755,7 +786,7 @@ export class FriendlyIframeEmbed {
    * @return {!Promise}
    * @visibleForTesting
    */
-  installExtensionsInChildWindow(
+  preInstallExtensionsInChildWindow(
     extensions,
     childWin,
     extensionIds,
@@ -764,48 +795,73 @@ export class FriendlyIframeEmbed {
     const topWin = extensions.win;
     const parentWin = toWin(childWin.frameElement.ownerDocument.defaultView);
     setParentWindow(childWin, parentWin);
+    const getDelayPromise = getDelayPromiseProducer();
 
-    // Install necessary polyfills.
-    installPolyfillsInChildWindow(parentWin, childWin);
+    return getDelayPromise(undefined)
+      .then(() => {
+        // Install necessary polyfills.
+        installPolyfillsInChildWindow(parentWin, childWin);
+      })
+      .then(getDelayPromise)
+      .then(() => {
+        // Install runtime styles.
+        installStylesLegacy(
+          childWin.document,
+          ampSharedCss,
+          /* callback */ null,
+          /* opt_isRuntimeCss */ true,
+          /* opt_ext */ 'amp-runtime'
+        );
+      })
+      .then(getDelayPromise)
+      .then(() => {
+        // Run pre-install callback.
+        if (opt_preinstallCallback) {
+          opt_preinstallCallback(childWin);
+        }
+      })
+      .then(getDelayPromise)
+      .then(() => {
+        // Install embeddable standard services.
+        installStandardServicesInEmbed(childWin);
+      })
+      .then(getDelayPromise)
+      .then(() => {
+        // Install built-ins elements.
+        copyBuiltinElementsToChildWindow(topWin, childWin);
+        stubLegacyElements(childWin);
+      })
+      .then(getDelayPromise)
+      .then(() => {
+        extensionIds.forEach((extensionId) => {
+          // This will extend automatic upgrade of custom elements from top
+          // window to the child window.
+          if (!LEGACY_ELEMENTS.includes(extensionId)) {
+            stubElementIfNotKnown(childWin, extensionId);
+          }
+        });
+      })
+      .then(getDelayPromise);
+  }
 
-    // Install runtime styles.
-    installStylesLegacy(
-      childWin.document,
-      getExperimentBranch(this.win, FIE_CSS_CLEANUP_EXP.branch) ===
-        FIE_CSS_CLEANUP_EXP.experiment
-        ? ampSharedCss
-        : ampDocCss + ampSharedCss,
-      /* callback */ null,
-      /* opt_isRuntimeCss */ true,
-      /* opt_ext */ 'amp-runtime'
-    );
-
-    // Run pre-install callback.
-    if (opt_preinstallCallback) {
-      opt_preinstallCallback(childWin);
-    }
-
-    // Install embeddable standard services.
-    installStandardServicesInEmbed(childWin);
-
-    // Install built-ins and legacy elements.
-    copyBuiltinElementsToChildWindow(topWin, childWin);
-    stubLegacyElements(childWin);
+  /**
+   * Install non-built-in extensions in the child window (friendly iframe).
+   * @param {!./service/extensions-impl.Extensions} extensions
+   * @param {!Window} childWin
+   * @param {!Array<string>} extensionIds
+   * @return {!Promise}
+   * @visibleForTesting
+   */
+  doInstallExtensionsInChildWindow(extensions, childWin, extensionIds) {
+    const getDelayPromise = getDelayPromiseProducer();
 
     const promises = [];
-    extensionIds.forEach(extensionId => {
-      // This will extend automatic upgrade of custom elements from top
-      // window to the child window.
-      if (!LEGACY_ELEMENTS.includes(extensionId)) {
-        stubElementIfNotKnown(childWin, extensionId);
-      }
-
-      // Install CSS.
-      const promise = extensions
-        .preloadExtension(extensionId)
-        .then(extension => {
+    extensionIds.forEach((extensionId) => {
+      const promise = getDelayPromise(undefined)
+        .then(() => extensions.preloadExtension(extensionId))
+        .then((extension) => {
           // Adopt embeddable extension services.
-          extension.services.forEach(service => {
+          /** @type {!Array} */ (extension.services).forEach((service) => {
             installServiceInEmbedIfEmbeddable(childWin, service.serviceClass);
           });
 
@@ -813,7 +869,7 @@ export class FriendlyIframeEmbed {
           let elementPromises = null;
           for (const elementName in extension.elements) {
             const elementDef = extension.elements[elementName];
-            const elementPromise = new Promise(resolve => {
+            const elementPromise = new Promise((resolve) => {
               if (elementDef.css) {
                 installStylesLegacy(
                   childWin.document,
@@ -857,14 +913,16 @@ export class FriendlyIframeEmbed {
 function installPolyfillsInChildWindow(parentWin, childWin) {
   installDocContains(childWin);
   installDOMTokenList(childWin);
+  // The anonymous class parameter allows us to detect native classes vs
+  // transpiled classes.
+  installCustomElements(childWin, class {});
   if (
     // eslint-disable-next-line no-undef
-    CUSTOM_ELEMENTS_V1 ||
+    INTERSECTION_OBSERVER_POLYFILL ||
+    getMode().localDev ||
     getMode().test
   ) {
-    installCustomElements(childWin);
-  } else {
-    installRegisterElement(childWin, 'auto');
+    installIntersectionObserver(parentWin, childWin);
   }
 }
 
@@ -906,7 +964,7 @@ export function installStandardServicesInEmbed(childWin) {
     Services.navigationForDoc(frameElement),
   ];
   const ampdoc = getAmpdoc(frameElement);
-  standardServices.forEach(service => {
+  standardServices.forEach((service) => {
     // Static functions must be invoked on the class, not the instance.
     service.constructor.installInEmbedWindow(childWin, ampdoc);
   });

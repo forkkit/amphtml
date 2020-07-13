@@ -20,7 +20,7 @@ const glob = require('glob');
 const jison = require('jison');
 const path = require('path');
 const {endBuildStep} = require('./helpers');
-const {jisonPaths} = require('../config');
+const {jisonPaths} = require('../test-configs/config');
 
 // set imports for each parser from directory build/parsers/.
 const imports = new Map([
@@ -45,8 +45,8 @@ async function compileJison() {
   fs.mkdirSync('build/parsers', {recursive: true});
   const startTime = Date.now();
   const promises = [];
-  jisonPaths.forEach(jisonPath => {
-    glob.sync(jisonPath).forEach(jisonFile => {
+  jisonPaths.forEach((jisonPath) => {
+    glob.sync(jisonPath).forEach((jisonFile) => {
       const jsFile = path.basename(jisonFile, '.jison');
       const extension = jsFile.replace('-expr-impl', '');
       const parser = extension + 'Parser';

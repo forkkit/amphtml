@@ -42,11 +42,11 @@ router.use('/vegetable-data/get', (req, res) => {
 /*
  * Infinite scroll related endpoints.
  */
-const randInt = n => {
+const randInt = (n) => {
   return Math.floor(Math.random()) * n;
 };
 
-const squareImgUrl = width => {
+const squareImgUrl = (width) => {
   return `http://picsum.photos/${width}?${randInt(50)}`;
 };
 
@@ -96,13 +96,13 @@ const generateResults = (category, count = 2) => {
   return r;
 };
 
-router.get('/infinite-scroll-random/:category', function(request, response) {
+router.get('/infinite-scroll-random/:category', function (request, response) {
   const {category} = request.params;
   const result = generateResults(category);
   response.json(result);
 });
 
-router.get('/infinite-scroll-faulty', function(req, res) {
+router.get('/infinite-scroll-faulty', function (req, res) {
   const {query} = req;
   const code = query['code'];
   const items = generateJson(12);
@@ -113,14 +113,14 @@ router.get('/infinite-scroll-faulty', function(req, res) {
   res.json({items, next});
 });
 
-router.get('/infinite-scroll-error', function(req, res) {
+router.get('/infinite-scroll-error', function (req, res) {
   const {query} = req;
   const code = query['code'] || 404;
   res.status(code);
   res.json({'msg': code});
 });
 
-router.get('/infinite-scroll', function(req, res) {
+router.get('/infinite-scroll', function (req, res) {
   const {query} = req;
   const numberOfItems = query['items'] || 10;
   const pagesLeft = query['left'] || 1;
@@ -158,7 +158,7 @@ const generateJsonWithState = (numberOfItems, pagesLeft) => {
   return results;
 };
 
-router.get('/infinite-scroll-state', function(req, res) {
+router.get('/infinite-scroll-state', function (req, res) {
   const {query} = req;
   const numberOfItems = query['items'] || 2;
   const pagesLeft = query['left'] || 0;
@@ -173,6 +173,106 @@ router.get('/infinite-scroll-state', function(req, res) {
     next,
   };
   res.json(results);
+});
+
+router.get('/ecommerce-nested-menu', function (req, res) {
+  res.json({
+    'menu': [
+      {
+        'title': 'Clothing, Shoes, Jewelry \u0026 Watches',
+        'image': 'https://picsum.photos/id/535/367/267',
+        'content': [
+          {
+            'title': 'Clothing, Shoes, Jewelry \u0026 Watches',
+            'content': [
+              'Women',
+              'Men',
+              'Girls',
+              'Boys',
+              'Baby',
+              'Luggage',
+              'Accessories',
+            ],
+          },
+          {'title': 'More to Explore', 'content': ['Our Brands']},
+        ],
+      },
+      {
+        'title': 'Movies, Music \u0026 Games',
+        'image': 'https://picsum.photos/id/452/367/267',
+        'content': [
+          {
+            'title': 'Movies, Music \u0026 Games',
+            'content': [
+              'Movies \u0026 TV',
+              'Blue-ray',
+              'CDs \u0026 Vinyl',
+              'Digital Music',
+              'Video Games',
+              'Headphones',
+              'Musical Instruments',
+              'Entertainment Collectibles',
+            ],
+          },
+        ],
+      },
+      {
+        'title': 'Sports \u0026 Outdoors',
+        'image': 'https://picsum.photos/id/469/367/267',
+        'content': [
+          {
+            'title': 'Sports',
+            'content': [
+              'Athletic Clothing',
+              'Exercise \u0026 Fitness',
+              'Hunting \u0026 Fishing',
+              'Team Sports',
+              'Sports Collectibles',
+            ],
+          },
+          {
+            'title': 'Outdoors',
+            'content': [
+              'Camping \u0026 Hiking',
+              'Cycling',
+              'Outdoor Clothing',
+              'Climbing',
+              'Accessories',
+            ],
+          },
+        ],
+      },
+      {
+        'title': 'Home, Garden \u0026 Tools',
+        'image': 'https://picsum.photos/id/491/367/267',
+        'content': [
+          {
+            'title': 'Home, Garden \u0026 Pets',
+            'content': [
+              'Furniture',
+              'Kitchen \u0026 Dining',
+              'Bed \u0026 Bath',
+              'Garden \u0026 Outdoor',
+              'Mattresses',
+              'Lighting',
+              'Appliances',
+              'Pet Supplies',
+            ],
+          },
+          {
+            'title': 'Tools, Home Improvement',
+            'content': [
+              'Home Improvment',
+              'Power \u0026 Hand Tools',
+              'Cookware',
+              'Hardware',
+              'Smart Home',
+            ],
+          },
+        ],
+      },
+    ],
+  });
 });
 
 module.exports = router;

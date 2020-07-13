@@ -17,7 +17,7 @@
 import {AnalyticsEventType} from './events';
 import {BatchSegmentDef, defaultSerializer} from './transport-serializer';
 import {ExpansionOptions, variableServiceForDoc} from './variables';
-import {SANDBOX_AVAILABLE_VARS} from './sandbox-vars-whitelist';
+import {SANDBOX_AVAILABLE_VARS} from './sandbox-vars-allowlist';
 import {Services} from '../../../src/services';
 import {devAssert, userAssert} from '../../../src/log';
 import {dict} from '../../../src/utils/object';
@@ -30,7 +30,7 @@ export class RequestHandler {
   /**
    * @param {!Element} element
    * @param {!JsonObject} request
-   * @param {!../../../src/preconnect.Preconnect} preconnect
+   * @param {!../../../src/preconnect.PreconnectService} preconnect
    * @param {./transport.Transport} transport
    * @param {boolean} isSandbox
    */
@@ -80,14 +80,14 @@ export class RequestHandler {
     /** @private {!Array<!Promise<!BatchSegmentDef>>} */
     this.batchSegmentPromises_ = [];
 
-    /** @private {!../../../src/preconnect.Preconnect} */
+    /** @private {!../../../src/preconnect.PreconnectService} */
     this.preconnect_ = preconnect;
 
     /** @private {./transport.Transport} */
     this.transport_ = transport;
 
     /** @const @private {!Object|undefined} */
-    this.whiteList_ = isSandbox ? SANDBOX_AVAILABLE_VARS : undefined;
+    this.allowlist_ = isSandbox ? SANDBOX_AVAILABLE_VARS : undefined;
 
     /** @private {?number} */
     this.batchIntervalTimeoutId_ = null;
@@ -129,7 +129,7 @@ export class RequestHandler {
     this.lastTrigger_ = trigger;
     const bindings = this.variableService_.getMacros(this.element_);
     bindings['RESOURCE_TIMING'] = getResourceTiming(
-      this.ampdoc_,
+      this.element_,
       trigger['resourceTimingSpec'],
       this.startTime_
     );
@@ -139,14 +139,17 @@ export class RequestHandler {
 
       this.baseUrlTemplatePromise_ = this.variableService_.expandTemplate(
         this.baseUrl,
-        expansionOption
+        expansionOption,
+        this.element_,
+        bindings,
+        this.allowlist_
       );
 
-      this.baseUrlPromise_ = this.baseUrlTemplatePromise_.then(baseUrl => {
+      this.baseUrlPromise_ = this.baseUrlTemplatePromise_.then((baseUrl) => {
         return this.urlReplacementService_.expandUrlAsync(
           baseUrl,
           bindings,
-          this.whiteList_
+          this.allowlist_
         );
       });
     }
@@ -162,19 +165,25 @@ export class RequestHandler {
 
       this.requestOriginPromise_ = this.variableService_
         // expand variables in request origin
-        .expandTemplate(this.requestOrigin_, requestOriginExpansionOpt)
+        .expandTemplate(
+          this.requestOrigin_,
+          requestOriginExpansionOpt,
+          this.element_,
+          bindings,
+          this.allowlist_
+        )
         // substitute in URL values e.g. DOCUMENT_REFERRER -> https://example.com
-        .then(expandedRequestOrigin => {
+        .then((expandedRequestOrigin) => {
           return this.urlReplacementService_.expandUrlAsync(
             expandedRequestOrigin,
             bindings,
-            this.whiteList_,
+            this.allowlist_,
             true // opt_noEncode
           );
         });
     }
 
-    const params = Object.assign({}, configParams, trigger['extraUrlParams']);
+    const params = {...configParams, ...trigger['extraUrlParams']};
     const timestamp = this.win.Date.now();
     const batchSegmentPromise = expandExtraUrlParams(
       this.variableService_,
@@ -182,8 +191,9 @@ export class RequestHandler {
       params,
       expansionOption,
       bindings,
-      this.whiteList_
-    ).then(params => {
+      this.element_,
+      this.allowlist_
+    ).then((params) => {
       return dict({
         'trigger': trigger['on'],
         'timestamp': timestamp,
@@ -248,15 +258,15 @@ export class RequestHandler {
       ? requestOriginPromise
       : baseUrlTemplatePromise;
 
-    preconnectPromise.then(preUrl => {
-      this.preconnect_.url(preUrl, true);
+    preconnectPromise.then((preUrl) => {
+      this.preconnect_.url(this.ampdoc_, preUrl, true);
     });
 
     Promise.all([
       baseUrlPromise,
       Promise.all(segmentPromises),
       requestOriginPromise,
-    ]).then(results => {
+    ]).then((results) => {
       const requestUrl = this.composeRequestUrl_(results[0], results[2]);
 
       const batchSegments = results[1];
@@ -410,8 +420,8 @@ export function expandPostMessage(
   expansionOption.freezeVar('extraUrlParams');
 
   const basePromise = variableService
-    .expandTemplate(msg, expansionOption)
-    .then(base => {
+    .expandTemplate(msg, expansionOption, element)
+    .then((base) => {
       return urlReplacementService.expandStringAsync(base, bindings);
     });
   if (msg.indexOf('${extraUrlParams}') < 0) {
@@ -419,16 +429,17 @@ export function expandPostMessage(
     return basePromise;
   }
 
-  return basePromise.then(expandedMsg => {
-    const params = Object.assign({}, configParams, trigger['extraUrlParams']);
+  return basePromise.then((expandedMsg) => {
+    const params = {...configParams, ...trigger['extraUrlParams']};
     //return base url with the appended extra url params;
     return expandExtraUrlParams(
       variableService,
       urlReplacementService,
       params,
       expansionOption,
-      bindings
-    ).then(extraUrlParams => {
+      bindings,
+      element
+    ).then((extraUrlParams) => {
       return defaultSerializer(expandedMsg, [
         dict({'extraUrlParams': extraUrlParams}),
       ]);
@@ -443,7 +454,8 @@ export function expandPostMessage(
  * @param {!Object} params
  * @param {!./variables.ExpansionOptions} expansionOption
  * @param {!Object} bindings
- * @param {!Object=} opt_whitelist
+ * @param {!Element} element
+ * @param {!Object=} opt_allowlist
  * @return {!Promise<!Object>}
  * @private
  */
@@ -453,7 +465,8 @@ function expandExtraUrlParams(
   params,
   expansionOption,
   bindings,
-  opt_whitelist
+  element,
+  opt_allowlist
 ) {
   const requestPromises = [];
   // Don't encode param values here,
@@ -469,20 +482,22 @@ function expandExtraUrlParams(
 
     if (typeof value === 'string') {
       const request = variableService
-        .expandTemplate(value, option)
-        .then(value =>
-          urlReplacements.expandStringAsync(value, bindings, opt_whitelist)
+        .expandTemplate(value, option, element)
+        .then((value) =>
+          urlReplacements.expandStringAsync(value, bindings, opt_allowlist)
         )
-        .then(value => (params[key] = value));
+        .then((value) => (params[key] = value));
       requestPromises.push(request);
     } else if (isArray(value)) {
-      value.forEach((_, index) => expandObject(value, index));
+      /** @type {!Array} */ (value).forEach((_, index) =>
+        expandObject(value, index)
+      );
     } else if (isObject(value) && value !== null) {
-      Object.keys(value).forEach(key => expandObject(value, key));
+      Object.keys(value).forEach((key) => expandObject(value, key));
     }
   };
 
-  Object.keys(params).forEach(key => expandObject(params, key));
+  Object.keys(params).forEach((key) => expandObject(params, key));
 
   return Promise.all(requestPromises).then(() => params);
 }
